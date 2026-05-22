@@ -1,0 +1,15 @@
+# Usamos una imagen que ya viene con dlib y face_recognition preinstalados para ahorrar memoria
+FROM animcogn/face_recognition:cpu-latest
+
+# Establecer el directorio de trabajo dentro del contenedor
+WORKDIR /app
+
+# Copiar el archivo de requerimientos e instalar el resto de librerías
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar el resto del código del proyecto
+COPY . .
+
+# Comando para ejecutar la aplicación con Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "app:app"]
