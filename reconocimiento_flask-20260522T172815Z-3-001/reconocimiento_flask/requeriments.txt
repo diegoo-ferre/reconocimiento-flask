@@ -1,7 +1,0 @@
-Flask
-flask-cors
-numpy
-opencv-python-headless
-face-recognition
-psycopg2-binary
-gunicorn
