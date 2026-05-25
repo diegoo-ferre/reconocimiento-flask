@@ -23,6 +23,9 @@ def get_connection():
 def reconocer():
     try:
         data = request.get_json()
+        if 'foto' not in data:
+            return jsonify({"resultado": "error", "mensaje": "Falta la imagen"})
+            
         foto_base64 = data['foto'].split(',')[1]
         imagen = base64.b64decode(foto_base64)
         np_arr = np.frombuffer(imagen, np.uint8)
@@ -44,57 +47,51 @@ def reconocer():
             id_persona, nombre, ci, foto_db = p
             if not foto_db: continue
             
-            # --- CORRECCIÓN: Procesar imagen DB ---
-            img_bytes = base64.b64decode(foto_db.split(',')[1])
-            np_arr_db = np.frombuffer(img_bytes, np.uint8)
-            img_db = cv2.imdecode(np_arr_db, cv2.IMREAD_COLOR)
-            rgb_db = cv2.cvtColor(img_db, cv2.COLOR_BGR2RGB)
-            
-            encodings_db = face_recognition.face_encodings(rgb_db)
-            if not encodings_db: continue
-            
-            # --- CORRECCIÓN: Definir 'resultado' aquí ---
-            resultado = face_recognition.compare_faces([encodings_db[0]], encoding_actual)
-            
-            if resultado[0]:
-                hoy = date.today()
-                ahora = datetime.now().time()
+            try:
+                img_bytes = base64.b64decode(foto_db.split(',')[1])
+                np_arr_db = np.frombuffer(img_bytes, np.uint8)
+                img_db = cv2.imdecode(np_arr_db, cv2.IMREAD_COLOR)
+                rgb_db = cv2.cvtColor(img_db, cv2.COLOR_BGR2RGB)
+                encodings_db = face_recognition.face_encodings(rgb_db)
+                if not encodings_db: continue
                 
-                # Insertar Acceso
-                cur.execute("""
-                    INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
-                    VALUES (%s, %s, %s, %s, 'Exitoso', 100)
-                """, (id_persona, nombre, ci, hoy))
+                # Comparación
+                resultado_comparacion = face_recognition.compare_faces([encodings_db[0]], encoding_actual)
                 
-                # Gestionar Asistencias
-                cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
-                asistencia = cur.fetchone()
-                
-                mensaje_asistencia = ""
-                if not asistencia:
-                    cur.execute("INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado) VALUES (%s, %s, %s, 'En curso')", (id_persona, hoy, ahora))
-                    mensaje_asistencia = "Entrada registrada"
-                elif asistencia[1] and not asistencia[2]:
-                    # Calcular horas (diferencia)
-                    fmt = '%H:%M:%S'
-                    entrada_dt = datetime.combine(hoy, asistencia[1])
-                    salida_dt = datetime.now()
-                    horas = (salida_dt - entrada_dt).total_seconds() / 3600
-                    cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s, estado = 'Completado' WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
-                    mensaje_asistencia = "Salida registrada"
-                else:
-                    mensaje_asistencia = "Asistencia ya completada"
+                if resultado_comparacion[0]:
+                    hoy = date.today()
+                    ahora = datetime.now().time()
+                    
+                    # --- CORRECCIÓN IMPORTANTE ---
+                    # Cambié 'Exitoso' por 'Permitido' para evitar conflictos con el CHECK constraint
+                    cur.execute("""
+                        INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
+                        VALUES (%s, %s, %s, %s, 'Permitido', 100)
+                    """, (id_persona, nombre, ci, hoy))
+                    
+                    cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
+                    asistencia = cur.fetchone()
+                    
+                    mensaje_asistencia = ""
+                    if not asistencia:
+                        cur.execute("INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado) VALUES (%s, %s, %s, 'En curso')", (id_persona, hoy, ahora))
+                        mensaje_asistencia = "Entrada registrada"
+                    elif asistencia[1] and not asistencia[2]:
+                        entrada_dt = datetime.combine(hoy, asistencia[1])
+                        salida_dt = datetime.now()
+                        horas = (salida_dt - entrada_dt).total_seconds() / 3600
+                        cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s, estado = 'Completado' WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
+                        mensaje_asistencia = "Salida registrada"
+                    else:
+                        mensaje_asistencia = "Asistencia ya completada"
 
-                conn.commit()
-                cur.close()
-                conn.close()
-                
-                return jsonify({
-                    "resultado": "permitido",
-                    "nombre": nombre,
-                    "ci": ci,
-                    "asistencia": mensaje_asistencia
-                })
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                    
+                    return jsonify({"resultado": "permitido", "nombre": nombre, "asistencia": mensaje_asistencia})
+            except Exception:
+                continue
         
         cur.close()
         conn.close()
