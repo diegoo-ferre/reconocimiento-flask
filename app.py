@@ -15,7 +15,7 @@ def get_connection():
         host="ep-ancient-haze-aca057wp-pooler.sa-east-1.aws.neon.tech",
         database="neondb",
         user="neondb_owner",
-        password="tu_password_aqui", # Asegúrate de que sea correcta
+        password="npg_6rt8OdayAHcm", # Asegúrate de que sea correcta
         sslmode="require"
     )
 
