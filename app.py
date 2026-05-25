@@ -15,7 +15,7 @@ def get_connection():
         host="ep-ancient-haze-aca057wp-pooler.sa-east-1.aws.neon.tech",
         database="neondb",
         user="neondb_owner",
-        password="npg_6rt8OdayAHcm", # Asegúrate de que sea correcta
+        password="npg_6rt8OdayAHcm",
         sslmode="require"
     )
 
@@ -35,7 +35,6 @@ def reconocer():
 
         encoding_actual = face_recognition.face_encodings(rgb, rostros)[0]
         
-        # Conectar para comparar
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("SELECT id, nombre, ci, foto1 FROM personas")
@@ -45,19 +44,29 @@ def reconocer():
             id_persona, nombre, ci, foto_db = p
             if not foto_db: continue
             
-            # (Lógica de comparación existente...)
-            # Supongamos que aquí obtienes el resultado positivo:
+            # --- CORRECCIÓN: Procesar imagen DB ---
+            img_bytes = base64.b64decode(foto_db.split(',')[1])
+            np_arr_db = np.frombuffer(img_bytes, np.uint8)
+            img_db = cv2.imdecode(np_arr_db, cv2.IMREAD_COLOR)
+            rgb_db = cv2.cvtColor(img_db, cv2.COLOR_BGR2RGB)
+            
+            encodings_db = face_recognition.face_encodings(rgb_db)
+            if not encodings_db: continue
+            
+            # --- CORRECCIÓN: Definir 'resultado' aquí ---
+            resultado = face_recognition.compare_faces([encodings_db[0]], encoding_actual)
+            
             if resultado[0]:
                 hoy = date.today()
                 ahora = datetime.now().time()
                 
-                # 1. Insertar en Accesos
+                # Insertar Acceso
                 cur.execute("""
                     INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                     VALUES (%s, %s, %s, %s, 'Exitoso', 100)
-                """, (id_persona, nombre, ci, hoy, 100))
+                """, (id_persona, nombre, ci, hoy))
                 
-                # 2. Gestionar Asistencias
+                # Gestionar Asistencias
                 cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
                 asistencia = cur.fetchone()
                 
@@ -66,11 +75,11 @@ def reconocer():
                     cur.execute("INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado) VALUES (%s, %s, %s, 'En curso')", (id_persona, hoy, ahora))
                     mensaje_asistencia = "Entrada registrada"
                 elif asistencia[1] and not asistencia[2]:
-                    # Calcular horas
+                    # Calcular horas (diferencia)
                     fmt = '%H:%M:%S'
-                    entrada = datetime.combine(hoy, asistencia[1])
-                    salida = datetime.now()
-                    horas = (salida - entrada).total_seconds() / 3600
+                    entrada_dt = datetime.combine(hoy, asistencia[1])
+                    salida_dt = datetime.now()
+                    horas = (salida_dt - entrada_dt).total_seconds() / 3600
                     cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s, estado = 'Completado' WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
                     mensaje_asistencia = "Salida registrada"
                 else:
