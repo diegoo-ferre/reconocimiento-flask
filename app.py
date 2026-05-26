@@ -9,6 +9,9 @@ from datetime import datetime, date
 
 app = Flask(__name__)
 CORS(app)
+@app.route('/')
+def home():
+    return "El servidor está funcionando correctamente."
 
 def get_connection():
     return psycopg2.connect(
