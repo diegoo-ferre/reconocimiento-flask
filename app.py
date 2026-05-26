@@ -89,7 +89,7 @@ def reconocer():
                     cur.close()
                     conn.close()
                     
-                    return jsonify({"resultado": "permitido", "nombre": nombre, "asistencia": mensaje_asistencia})
+                    return jsonify({"resultado": "permitido", "nombre": nombre, "ci": ci, "asistencia": mensaje_asistencia})
             except Exception:
                 continue
         
