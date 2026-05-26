@@ -184,7 +184,7 @@ def reconocer():
                             %s,
                             %s,
                             %s,
-                            NOW(),
+                            ahora_py,
                             'permitido',
                             100
                         )
