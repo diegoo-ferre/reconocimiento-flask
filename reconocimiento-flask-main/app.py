@@ -6,9 +6,15 @@ import cv2
 import face_recognition
 import psycopg2
 from datetime import datetime, date
+import pytz
 
 app = Flask(__name__)
 CORS(app)
+
+# =========================
+# ZONA HORARIA PARAGUAY
+# =========================
+zona_py = pytz.timezone("America/Asuncion")
 
 def get_connection():
     return psycopg2.connect(
@@ -59,15 +65,18 @@ def reconocer():
                 resultado_comparacion = face_recognition.compare_faces([encodings_db[0]], encoding_actual)
                 
                 if resultado_comparacion[0]:
-                    hoy = date.today()
-                    ahora = datetime.now().time()
+                    # =========================
+                    # HORA REAL DE PARAGUAY
+                    # =========================
+                    ahora_py = datetime.now(zona_py)
+                    hoy = ahora_py.date()
+                    ahora = ahora_py.time()
                     
-                    # --- CORRECCIÓN IMPORTANTE ---
-                    # Cambié 'Exitoso' por 'Permitido' para evitar conflictos con el CHECK constraint
+                    # Guardamos la fecha y hora exacta con el timezone correcto en accesos
                     cur.execute("""
                         INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                         VALUES (%s, %s, %s, %s, 'Permitido', 100)
-                    """, (id_persona, nombre, ci, hoy))
+                    """, (id_persona, nombre, ci, ahora_py))
                     
                     cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
                     asistencia = cur.fetchone()
@@ -78,7 +87,7 @@ def reconocer():
                         mensaje_asistencia = "Entrada registrada"
                     elif asistencia[1] and not asistencia[2]:
                         entrada_dt = datetime.combine(hoy, asistencia[1])
-                        salida_dt = datetime.now()
+                        salida_dt = datetime.combine(hoy, ahora)
                         horas = (salida_dt - entrada_dt).total_seconds() / 3600
                         cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s, estado = 'Completado' WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
                         mensaje_asistencia = "Salida registrada"
@@ -89,7 +98,7 @@ def reconocer():
                     cur.close()
                     conn.close()
                     
-                    return jsonify({"resultado": "permitido", "nombre": nombre, "ci": ci, "asistencia": mensaje_asistencia})
+                    return jsonify({"resultado": "permitido", "nombre": nombre, "ci": ci, "asistencia": mensaje_asistencia, "hora": str(ahora)})
             except Exception:
                 continue
         
