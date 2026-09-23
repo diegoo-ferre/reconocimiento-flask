@@ -5,7 +5,6 @@ import numpy as np
 import cv2
 import face_recognition
 import psycopg2
-
 from datetime import datetime, date, timedelta
 import pytz
 
@@ -41,9 +40,7 @@ def get_connection():
 # =========================
 @app.route('/reconocer', methods=['POST'])
 def reconocer():
-
     try:
-
         data = request.get_json()
 
         if 'foto' not in data:
@@ -53,13 +50,9 @@ def reconocer():
             })
 
         foto_base64 = data['foto'].split(',')[1]
-
         imagen = base64.b64decode(foto_base64)
-
         np_arr = np.frombuffer(imagen, np.uint8)
-
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         rostros = face_recognition.face_locations(rgb)
@@ -72,7 +65,6 @@ def reconocer():
         encoding_actual = face_recognition.face_encodings(rgb, rostros)[0]
 
         conn = get_connection()
-
         cur = conn.cursor()
 
         # =========================
@@ -90,7 +82,8 @@ def reconocer():
         config = cur.fetchone()
 
         if not config:
-
+            cur.close()
+            conn.close()
             return jsonify({
                 "resultado": "error",
                 "mensaje": "No existe configuración de horario"
@@ -104,9 +97,7 @@ def reconocer():
         # HORA PARAGUAY
         # =========================
         ahora_py = datetime.now(zona_py)
-
         hoy = ahora_py.date()
-
         hora_actual = ahora_py.time()
 
         # =========================
@@ -124,36 +115,18 @@ def reconocer():
         personas = cur.fetchall()
 
         for p in personas:
-
             id_persona, nombre, ci, foto_db = p
 
             if not foto_db:
                 continue
 
             try:
+                img_bytes = base64.b64decode(foto_db.split(',')[1])
+                np_arr_db = np.frombuffer(img_bytes, np.uint8)
+                img_db = cv2.imdecode(np_arr_db, cv2.IMREAD_COLOR)
+                rgb_db = cv2.cvtColor(img_db, cv2.COLOR_BGR2RGB)
 
-                img_bytes = base64.b64decode(
-                    foto_db.split(',')[1]
-                )
-
-                np_arr_db = np.frombuffer(
-                    img_bytes,
-                    np.uint8
-                )
-
-                img_db = cv2.imdecode(
-                    np_arr_db,
-                    cv2.IMREAD_COLOR
-                )
-
-                rgb_db = cv2.cvtColor(
-                    img_db,
-                    cv2.COLOR_BGR2RGB
-                )
-
-                encodings_db = face_recognition.face_encodings(
-                    rgb_db
-                )
+                encodings_db = face_recognition.face_encodings(rgb_db)
 
                 if not encodings_db:
                     continue
@@ -180,18 +153,12 @@ def reconocer():
                             resultado,
                             similitud
                         )
-                        VALUES (
-                            %s,
-                            %s,
-                            %s,
-                            ahora_py,
-                            'permitido',
-                            100
-                        )
+                        VALUES (%s, %s, %s, %s, 'permitido', 100)
                     """, (
                         id_persona,
                         nombre,
-                        ci
+                        ci,
+                        ahora_py
                     ))
 
                     # =========================
@@ -211,52 +178,24 @@ def reconocer():
                     ))
 
                     asistencia = cur.fetchone()
-
                     mensaje_asistencia = ""
 
                     # =========================
                     # SI NO EXISTE -> ENTRADA
                     # =========================
                     if not asistencia:
-
-                        # hora límite
-                        entrada_datetime = datetime.combine(
-                            hoy,
-                            hora_entrada_config
-                        )
-
-                        hora_limite = (
-                            entrada_datetime +
-                            timedelta(minutes=tolerancia)
-                        ).time()
+                        entrada_datetime = datetime.combine(hoy, hora_entrada_config)
+                        hora_limite = (entrada_datetime + timedelta(minutes=tolerancia)).time()
 
                         minutos_tardanza = 0
-
                         estado = "puntual"
 
-                        # =========================
-                        # TARDANZA
-                        # =========================
                         if hora_actual > hora_limite:
-
                             estado = "tardanza"
+                            dt_actual = datetime.combine(hoy, hora_actual)
+                            diferencia = dt_actual - entrada_datetime
+                            minutos_tardanza = int(diferencia.total_seconds() / 60)
 
-                            dt_actual = datetime.combine(
-                                hoy,
-                                hora_actual
-                            )
-
-                            diferencia = (
-                                dt_actual - entrada_datetime
-                            )
-
-                            minutos_tardanza = int(
-                                diferencia.total_seconds() / 60
-                            )
-
-                        # =========================
-                        # INSERTAR ENTRADA
-                        # =========================
                         cur.execute("""
                             INSERT INTO asistencias(
                                 persona_id,
@@ -266,14 +205,7 @@ def reconocer():
                                 minutos_tardanza,
                                 observacion
                             )
-                            VALUES(
-                                %s,
-                                %s,
-                                %s,
-                                %s,
-                                %s,
-                                %s
-                            )
+                            VALUES(%s, %s, %s, %s, %s, %s)
                         """, (
                             id_persona,
                             hoy,
@@ -284,36 +216,18 @@ def reconocer():
                         ))
 
                         if estado == "tardanza":
-
-                            mensaje_asistencia = (
-                                f"Llegada tardía "
-                                f"({minutos_tardanza} min)"
-                            )
-
+                            mensaje_asistencia = f"Llegada tardía ({minutos_tardanza} min)"
                         else:
-
-                            mensaje_asistencia = (
-                                "Entrada registrada"
-                            )
+                            mensaje_asistencia = "Entrada registrada"
 
                     # =========================
                     # SI YA ENTRÓ -> SALIDA
                     # =========================
                     elif asistencia[1] and not asistencia[2]:
+                        entrada_dt = datetime.combine(hoy, asistencia[1])
+                        salida_dt = datetime.combine(hoy, hora_actual)
 
-                        entrada_dt = datetime.combine(
-                            hoy,
-                            asistencia[1]
-                        )
-
-                        salida_dt = datetime.combine(
-                            hoy,
-                            hora_actual
-                        )
-
-                        horas = (
-                            salida_dt - entrada_dt
-                        ).total_seconds() / 3600
+                        horas = (salida_dt - entrada_dt).total_seconds() / 3600
 
                         cur.execute("""
                             UPDATE asistencias
@@ -328,23 +242,16 @@ def reconocer():
                             asistencia[0]
                         ))
 
-                        mensaje_asistencia = (
-                            "Salida registrada"
-                        )
+                        mensaje_asistencia = "Salida registrada"
 
                     # =========================
                     # YA COMPLETÓ
                     # =========================
                     else:
-
-                        mensaje_asistencia = (
-                            "Asistencia ya completada"
-                        )
+                        mensaje_asistencia = "Asistencia ya completada"
 
                     conn.commit()
-
                     cur.close()
-
                     conn.close()
 
                     return jsonify({
@@ -359,7 +266,6 @@ def reconocer():
                 continue
 
         cur.close()
-
         conn.close()
 
         return jsonify({
@@ -367,7 +273,6 @@ def reconocer():
         })
 
     except Exception as e:
-
         return jsonify({
             "resultado": "error",
             "mensaje": str(e)
@@ -375,7 +280,6 @@ def reconocer():
 
 
 if __name__ == '__main__':
-
     app.run(
         host='0.0.0.0',
         port=10000
