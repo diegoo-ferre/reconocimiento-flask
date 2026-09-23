@@ -19,11 +19,15 @@ def get_connection():
         sslmode="require"
     )
 
+@app.route('/')
+def home():
+    return "API de reconocimiento facial activa."
+
 @app.route('/reconocer', methods=['POST'])
 def reconocer():
     try:
         data = request.get_json()
-        if 'foto' not in data:
+        if not data or 'foto' not in data:
             return jsonify({"resultado": "error", "mensaje": "Falta la imagen"})
             
         foto_base64 = data['foto'].split(',')[1]
@@ -55,22 +59,22 @@ def reconocer():
                 encodings_db = face_recognition.face_encodings(rgb_db)
                 if not encodings_db: continue
                 
-                # Comparación
+                # Comparación de rostros
                 resultado_comparacion = face_recognition.compare_faces([encodings_db[0]], encoding_actual)
                 
                 if resultado_comparacion[0]:
-                    # =========================
-                    # HORA PARAGUAY (Restando 3 horas al servidor UTC)
-                    # =========================
+                    # Hora exacta de Paraguay (UTC menos 3 horas)
                     ahora_py = datetime.now() - timedelta(hours=3)
                     hoy = ahora_py.date()
                     ahora = ahora_py.time()
                     
+                    # Registrar acceso
                     cur.execute("""
                         INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                         VALUES (%s, %s, %s, %s, 'Permitido', 100)
                     """, (id_persona, nombre, ci, ahora_py))
                     
+                    # Control de asistencias
                     cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
                     asistencia = cur.fetchone()
                     
@@ -91,7 +95,13 @@ def reconocer():
                     cur.close()
                     conn.close()
                     
-                    return jsonify({"resultado": "permitido", "nombre": nombre, "ci": ci, "asistencia": mensaje_asistencia, "hora": str(ahora)})
+                    return jsonify({
+                        "resultado": "permitido", 
+                        "nombre": nombre, 
+                        "ci": ci, 
+                        "asistencia": mensaje_asistencia, 
+                        "hora": str(ahora)
+                    })
             except Exception:
                 continue
         
