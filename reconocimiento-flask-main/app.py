@@ -5,16 +5,10 @@ import numpy as np
 import cv2
 import face_recognition
 import psycopg2
-from datetime import datetime, date
-import pytz
+from datetime import datetime, date, timedelta
 
 app = Flask(__name__)
 CORS(app)
-
-# =========================
-# ZONA HORARIA PARAGUAY
-# =========================
-zona_py = pytz.timezone("America/Asuncion")
 
 def get_connection():
     return psycopg2.connect(
@@ -66,13 +60,12 @@ def reconocer():
                 
                 if resultado_comparacion[0]:
                     # =========================
-                    # HORA REAL DE PARAGUAY
+                    # HORA PARAGUAY (Restando 3 horas al servidor UTC)
                     # =========================
-                    ahora_py = datetime.now(zona_py)
+                    ahora_py = datetime.now() - timedelta(hours=3)
                     hoy = ahora_py.date()
                     ahora = ahora_py.time()
                     
-                    # Guardamos la fecha y hora exacta con el timezone correcto en accesos
                     cur.execute("""
                         INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                         VALUES (%s, %s, %s, %s, 'Permitido', 100)
