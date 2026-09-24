@@ -90,7 +90,6 @@ def reconocer():
                     ahora = ahora_py.time()
                     
                     # Calcular si llegó a tiempo o con tardanza comparando con el turno seleccionado
-                    # Convertimos hora_inicio_turno y 'ahora' a objetos datetime de hoy para comparar segundos
                     dt_inicio_oficial = datetime.combine(hoy, hora_inicio_turno)
                     dt_limite_tolerancia = dt_inicio_oficial + timedelta(minutes=tolerancia_minutos)
                     dt_marCacion = datetime.combine(hoy, ahora)
@@ -99,7 +98,7 @@ def reconocer():
                     if dt_marCacion > dt_limite_tolerancia:
                         estado_asistencia_str = "Tardanza"
 
-                    # Registrar acceso en la base de datos (incluyendo el turno_id si tu tabla lo soporta)
+                    # Registrar acceso en la base de datos
                     cur.execute("""
                         INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                         VALUES (%s, %s, %s, %s, 'Permitido', 100)
