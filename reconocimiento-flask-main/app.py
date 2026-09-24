@@ -30,6 +30,11 @@ def reconocer():
         if not data or 'foto' not in data:
             return jsonify({"resultado": "error", "mensaje": "Falta la imagen"})
             
+        # Capturar el turno_id enviado desde la interfaz web (index.jsp)
+        turno_id = data.get('turno_id')
+        if not turno_id:
+            return jsonify({"resultado": "error", "mensaje": "Debe seleccionar un turno"})
+
         foto_base64 = data['foto'].split(',')[1]
         imagen = base64.b64decode(foto_base64)
         np_arr = np.frombuffer(imagen, np.uint8)
@@ -44,6 +49,22 @@ def reconocer():
         
         conn = get_connection()
         cur = conn.cursor()
+
+        # 1. Consultar el horario oficial del turno seleccionado (Mañana, Tarde o Noche)
+        cur.execute("SELECT hora_inicio, hora_fin FROM turnos WHERE id = %s", (turno_id,))
+        turno_info = cur.fetchone()
+        if not turno_info:
+            cur.close()
+            conn.close()
+            return jsonify({"resultado": "error", "mensaje": "Turno no válido"})
+        
+        hora_inicio_turno = turno_info[0] # Ej: 13:00:00 para la Tarde
+
+        # 2. Consultar la tolerancia en minutos configurada globalmente
+        cur.execute("SELECT tolerancia_minutos FROM configuracion_horario LIMIT 1")
+        tol_info = cur.fetchone()
+        tolerancia_minutos = tol_info[0] if tol_info else 10 # 10 minutos por defecto si no existe
+
         cur.execute("SELECT id, nombre, ci, foto1 FROM personas")
         personas = cur.fetchall()
 
@@ -68,28 +89,41 @@ def reconocer():
                     hoy = ahora_py.date()
                     ahora = ahora_py.time()
                     
-                    # Registrar acceso
+                    # Calcular si llegó a tiempo o con tardanza comparando con el turno seleccionado
+                    # Convertimos hora_inicio_turno y 'ahora' a objetos datetime de hoy para comparar segundos
+                    dt_inicio_oficial = datetime.combine(hoy, hora_inicio_turno)
+                    dt_limite_tolerancia = dt_inicio_oficial + timedelta(minutes=tolerancia_minutos)
+                    dt_marCacion = datetime.combine(hoy, ahora)
+
+                    estado_asistencia_str = "Presente"
+                    if dt_marCacion > dt_limite_tolerancia:
+                        estado_asistencia_str = "Tardanza"
+
+                    # Registrar acceso en la base de datos (incluyendo el turno_id si tu tabla lo soporta)
                     cur.execute("""
                         INSERT INTO accesos (persona_id, nombre_detectado, ci_detectado, fecha_acceso, resultado, similitud)
                         VALUES (%s, %s, %s, %s, 'Permitido', 100)
                     """, (id_persona, nombre, ci, ahora_py))
                     
-                    # Control de asistencias
-                    cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s", (id_persona, hoy))
+                    # Control de asistencias (asociado al turno_id)
+                    cur.execute("SELECT id, hora_entrada, hora_salida FROM asistencias WHERE persona_id = %s AND fecha = %s AND turno_id = %s", (id_persona, hoy, turno_id))
                     asistencia = cur.fetchone()
                     
                     mensaje_asistencia = ""
                     if not asistencia:
-                        cur.execute("INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado) VALUES (%s, %s, %s, 'En curso')", (id_persona, hoy, ahora))
-                        mensaje_asistencia = "Entrada registrada"
+                        cur.execute("""
+                            INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado, turno_id) 
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (id_persona, hoy, ahora, estado_asistencia_str, turno_id))
+                        mensaje_asistencia = f"Entrada registrada ({estado_asistencia_str})"
                     elif asistencia[1] and not asistencia[2]:
                         entrada_dt = datetime.combine(hoy, asistencia[1])
                         salida_dt = datetime.combine(hoy, ahora)
                         horas = (salida_dt - entrada_dt).total_seconds() / 3600
-                        cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s, estado = 'Completado' WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
+                        cur.execute("UPDATE asistencias SET hora_salida = %s, horas_trabajadas = %s WHERE id = %s", (ahora, round(horas, 2), asistencia[0]))
                         mensaje_asistencia = "Salida registrada"
                     else:
-                        mensaje_asistencia = "Asistencia ya completada"
+                        mensaje_asistencia = "Asistencia ya completada para este turno"
 
                     conn.commit()
                     cur.close()
@@ -102,7 +136,8 @@ def reconocer():
                         "asistencia": mensaje_asistencia, 
                         "hora": str(ahora)
                     })
-            except Exception:
+            except Exception as ex:
+                print("Error procesando persona:", str(ex))
                 continue
         
         cur.close()
