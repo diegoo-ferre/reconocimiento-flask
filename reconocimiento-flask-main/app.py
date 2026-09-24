@@ -1,3 +1,28 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import base64
+import numpy as np
+import cv2
+import face_recognition
+import psycopg2
+from datetime import datetime, date, timedelta
+
+app = Flask(__name__)
+CORS(app)
+
+def get_connection():
+    return psycopg2.connect(
+        host="ep-ancient-haze-aca057wp-pooler.sa-east-1.aws.neon.tech",
+        database="neondb",
+        user="neondb_owner",
+        password="npg_6rt8OdayAHcm",
+        sslmode="require"
+    )
+
+@app.route('/')
+def home():
+    return "API de reconocimiento facial activa."
+
 @app.route('/reconocer', methods=['POST'])
 def reconocer():
     conn = None
@@ -7,7 +32,6 @@ def reconocer():
         if not data or 'foto' not in data:
             return jsonify({"resultado": "error", "mensaje": "Falta la imagen"})
             
-        # Capturar y convertir el turno_id a entero para evitar conflictos de tipo con PostgreSQL
         raw_turno_id = data.get('turno_id')
         if not raw_turno_id:
             return jsonify({"resultado": "error", "mensaje": "Debe seleccionar un turno"})
@@ -135,3 +159,6 @@ def reconocer():
             except:
                 pass
         return jsonify({"resultado": "error", "mensaje": str(e)})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
