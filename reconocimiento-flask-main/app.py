@@ -116,11 +116,35 @@ def reconocer():
                     
                     mensaje_asistencia = ""
                     if not asistencia:
+                        # REGISTRAR ENTRADA
                         cur.execute("""
                             INSERT INTO asistencias (persona_id, fecha, hora_entrada, estado, turno_id) 
                             VALUES (%s, %s, %s, %s, %s)
                         """, (id_persona, hoy, hora_actual, estado_asistencia_str, turno_id))
                         mensaje_asistencia = f"Entrada registrada ({estado_asistencia_str})"
+
+                        # --- APLICACIÓN AUTOMÁTICA DE DESCUENTO POR TARDANZA ---
+                        if estado_asistencia_str == "Tardanza":
+                            # 1. Obtener periodo activo (mes y anio)
+                            cur.execute("SELECT mes, anio FROM periodo_activo ORDER BY id DESC LIMIT 1")
+                            periodo_row = cur.fetchone()
+                            
+                            if periodo_row:
+                                mes_activo, anio_activo = periodo_row[0], periodo_row[1]
+                                
+                                # 2. Obtener el motivo de descuento para llegada tardía
+                                cur.execute("SELECT id, motivo, valor FROM motivos_descuento WHERE LOWER(motivo) LIKE '%tard%' AND activo = true LIMIT 1")
+                                motivo_row = cur.fetchone()
+                                
+                                if motivo_row:
+                                    motivo_id, motivo_nombre, monto_desc = motivo_row[0], motivo_row[1], motivo_row[2]
+                                    
+                                    # 3. Registrar el descuento en la tabla de descuentos
+                                    cur.execute("""
+                                        INSERT INTO descuentos_persona (persona_id, motivo_id, mes, anio, monto_aplicado, nombre, ci, motivo)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (id_persona, motivo_id, mes_activo, anio_activo, monto_desc, nombre, ci, motivo_nombre))
+
                     elif asistencia[1] and not asistencia[2]:
                         entrada_dt = datetime.combine(hoy, asistencia[1])
                         salida_dt = datetime.combine(hoy, hora_actual)
